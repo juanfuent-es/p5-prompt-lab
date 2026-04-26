@@ -1,6 +1,6 @@
-const DISPLAY_SECONDS = 1;
-const CROSSFADE_SECONDS = 0.25;
-const ENTER_SCALE = 0.9;
+const DISPLAY_SECONDS = .065;
+const CROSSFADE_SECONDS = 0.025;
+const ENTER_SCALE = 0.2;
 const LOGO_PATH = './img/juanfuent.es-logo.svg';
 
 const BG_PATHS = [
@@ -20,9 +20,14 @@ const BG_PATHS = [
 ];
 
 let logoImage, logoBuffer, bgImages = [];
-let drawW = 0, drawH = 0, drawX = 0, drawY = 0;
+let logoWidth = 0, logoHeight = 0, logoX = 0, logoY = 0;
 
 let sequenceTimeline;
+let hoverTween;
+let logoZoomTween;
+let isHovered = false;
+let displayState = { imagesAlpha: 0 };
+let logoRenderState = { scale: 1 };
 let animationState = {
     index: 0,
     nextIndex: 0,
@@ -44,14 +49,19 @@ function setup() {
 }
 
 function draw() {
-    background(0, 0, 255);
+    background(0, 0, 0);
 
     if (!logoImage || bgImages.length === 0) {
         return;
     }
 
+    checkHover();
     renderMaskedLogo();
-    image(logoBuffer, drawX, drawY);
+    const scaledLogoWidth = logoWidth * logoRenderState.scale;
+    const scaledLogoHeight = logoHeight * logoRenderState.scale;
+    const scaledLogoX = logoX + (logoWidth - scaledLogoWidth) * 0.5;
+    const scaledLogoY = logoY + (logoHeight - scaledLogoHeight) * 0.5;
+    image(logoBuffer, scaledLogoX, scaledLogoY, scaledLogoWidth, scaledLogoHeight);
 }
 
 function windowResized() {
@@ -64,16 +74,18 @@ function updateLayout() {
         return;
     }
 
-    const maxW = width * 0.8;
-    const maxH = height * 0.8;
-    const scaleFactor = min(maxW / logoImage.width, maxH / logoImage.height);
+    const isMobile = width <= 768;
+    const screenRatio = isMobile ? 0.9 : 0.5;
+    const logoMaxWidth = min(width * screenRatio, 640);
+    const logoMaxHeight = height * screenRatio;
+    const scaleFactor = min(logoMaxWidth / logoImage.width, logoMaxHeight / logoImage.height);
 
-    drawW = max(1, floor(logoImage.width * scaleFactor));
-    drawH = max(1, floor(logoImage.height * scaleFactor));
-    drawX = floor((width - drawW) * 0.5);
-    drawY = floor((height - drawH) * 0.5);
+    logoWidth = max(1, floor(logoImage.width * scaleFactor));
+    logoHeight = max(1, floor(logoImage.height * scaleFactor));
+    logoX = floor((width - logoWidth) * 0.5);
+    logoY = floor((height - logoHeight) * 0.5);
 
-    logoBuffer = createGraphics(drawW, drawH);
+    logoBuffer = createGraphics(logoWidth, logoHeight);
 }
 
 function renderMaskedLogo() {
@@ -83,16 +95,30 @@ function renderMaskedLogo() {
 
     logoBuffer.clear();
     logoBuffer.drawingContext.imageSmoothingEnabled = true;
-    drawSequentialBackground(logoBuffer);
+
+    // Estado base: silueta blanca del logo
+    const whiteFill = 255 * (1 - displayState.imagesAlpha);
+    if (whiteFill > 0) {
+        logoBuffer.push();
+        logoBuffer.noStroke();
+        logoBuffer.fill(255, whiteFill);
+        logoBuffer.rect(0, 0, logoBuffer.width, logoBuffer.height);
+        logoBuffer.pop();
+    }
+
+    // Imágenes animadas en hover
+    if (displayState.imagesAlpha > 0) {
+        drawSequentialBackground(logoBuffer, displayState.imagesAlpha);
+    }
 
     const ctx = logoBuffer.drawingContext;
     ctx.save();
     ctx.globalCompositeOperation = 'destination-in';
-    logoBuffer.image(logoImage, 0, 0, drawW, drawH);
+    logoBuffer.image(logoImage, 0, 0, logoWidth, logoHeight);
     ctx.restore();
 }
 
-function drawSequentialBackground(gfx) {
+function drawSequentialBackground(gfx, masterAlpha = 1) {
     const total = bgImages.length;
     if (!total) {
         return;
@@ -101,35 +127,17 @@ function drawSequentialBackground(gfx) {
     const currentImg = bgImages[animationState.index % total];
     const nextImg = bgImages[animationState.nextIndex % total];
 
-    drawImageFullLogoWidth(gfx, currentImg, 255, 1);
+    drawImageFullLogoWidth(gfx, currentImg, 255 * masterAlpha, 1);
 
     if (total > 1 && animationState.nextAlpha > 0) {
-        drawImageFullLogoWidth(gfx, nextImg, 255 * animationState.nextAlpha, animationState.nextScale);
+        drawImageFullLogoWidth(gfx, nextImg, 255 * masterAlpha * animationState.nextAlpha, animationState.nextScale);
     }
 }
 
 function initSequenceAnimation() {
     const total = bgImages.length;
 
-    if (!total) {
-        return;
-    }
-
-    if (sequenceTimeline) {
-        sequenceTimeline.kill();
-        sequenceTimeline = null;
-    }
-
-    animationState.index = 0;
-    animationState.nextIndex = total > 1 ? 1 : 0;
-    animationState.nextAlpha = 0;
-    animationState.nextScale = ENTER_SCALE;
-
-    if (typeof gsap === 'undefined' || total < 2) {
-        return;
-    }
-
-    sequenceTimeline = gsap.timeline({ repeat: -1, defaults: { ease: 'none' } });
+    sequenceTimeline = gsap.timeline({ repeat: -1, defaults: { ease: 'none' }, paused: true });
 
     for (let i = 0; i < total; i += 1) {
         const current = i;
@@ -143,19 +151,53 @@ function initSequenceAnimation() {
         });
 
         sequenceTimeline.to(animationState, {
-            ease: 'power2.inOut',
             duration: DISPLAY_SECONDS,
             nextAlpha: 0,
             nextScale: ENTER_SCALE
         });
 
         sequenceTimeline.to(animationState, {
-            ease: 'power2.inOut',
             duration: CROSSFADE_SECONDS,
             nextAlpha: 1,
             nextScale: 1,
-            ease: 'power1.inOut'
         });
+    }
+}
+
+function checkHover() {
+    const over = mouseX >= logoX && mouseX <= logoX + logoWidth &&
+                 mouseY >= logoY && mouseY <= logoY + logoHeight;
+
+    if (over && !isHovered) {
+        isHovered = true;
+        if (hoverTween) hoverTween.kill();
+        if (logoZoomTween) logoZoomTween.kill();
+        if (sequenceTimeline) sequenceTimeline.resume();
+        hoverTween = gsap.to(displayState, {
+            duration: 0.4,
+            imagesAlpha: 1
+        });
+        logoZoomTween = gsap.to(logoRenderState, {
+            duration: 0.35,
+            scale: 1.05,
+            ease: 'power2.out'
+        });
+        document.body.style.cursor = 'pointer';
+    } else if (!over && isHovered) {
+        isHovered = false;
+        if (hoverTween) hoverTween.kill();
+        if (logoZoomTween) logoZoomTween.kill();
+        hoverTween = gsap.to(displayState, {
+            duration: 0.4,
+            imagesAlpha: 0,
+            onComplete: () => { if (sequenceTimeline) sequenceTimeline.pause(); }
+        });
+        logoZoomTween = gsap.to(logoRenderState, {
+            duration: 0.35,
+            scale: 1,
+            ease: 'power2.out'
+        });
+        document.body.style.cursor = 'default';
     }
 }
 
@@ -171,9 +213,12 @@ function drawImageFullLogoWidth(gfx, img, alphaValue, scaleValue = 1) {
     const scaledH = targetH * safeScale;
     const x = (gfx.width - scaledW) * 0.5;
     const y = (gfx.height - scaledH) * 0.5;
+    const drawable = img.canvas || img.elt || img;
+    const alpha = constrain(alphaValue / 255, 0, 1);
 
-    gfx.push();
-    gfx.tint(255, constrain(alphaValue, 0, 255));
-    gfx.image(img, x, y, scaledW, scaledH);
-    gfx.pop();
+    const ctx = gfx.drawingContext;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(drawable, x, y, scaledW, scaledH);
+    ctx.restore();
 }
