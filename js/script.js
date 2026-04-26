@@ -28,12 +28,7 @@ let logoZoomTween;
 let isHovered = false;
 let displayState = { imagesAlpha: 0 };
 let logoRenderState = { scale: 1 };
-let animationState = {
-    index: 0,
-    nextIndex: 0,
-    nextAlpha: 0,
-    nextScale: 1
-};
+let imageTracks = [];
 
 function preload() {
     logoImage = loadImage(LOGO_PATH);
@@ -45,7 +40,7 @@ function setup() {
     imageMode(CORNER);
     smooth();
     updateLayout();
-    initSequenceAnimation();
+    initSequenceTimeline();
 }
 
 function draw() {
@@ -55,7 +50,6 @@ function draw() {
         return;
     }
 
-    checkHover();
     renderMaskedLogo();
     const scaledLogoWidth = logoWidth * logoRenderState.scale;
     const scaledLogoHeight = logoHeight * logoRenderState.scale;
@@ -67,6 +61,7 @@ function draw() {
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
     updateLayout();
+    updateHoverState();
 }
 
 function updateLayout() {
@@ -119,86 +114,136 @@ function renderMaskedLogo() {
 }
 
 function drawSequentialBackground(gfx, masterAlpha = 1) {
-    const total = bgImages.length;
-    if (!total) {
+    if (!bgImages.length || !imageTracks.length) {
         return;
     }
 
-    const currentImg = bgImages[animationState.index % total];
-    const nextImg = bgImages[animationState.nextIndex % total];
-
-    drawImageFullLogoWidth(gfx, currentImg, 255 * masterAlpha, 1);
-
-    if (total > 1 && animationState.nextAlpha > 0) {
-        drawImageFullLogoWidth(gfx, nextImg, 255 * masterAlpha * animationState.nextAlpha, animationState.nextScale);
+    for (let i = 0; i < bgImages.length; i += 1) {
+        const track = imageTracks[i];
+        if (!track || track.alpha <= 0.001) {
+            continue;
+        }
+        drawImageFullLogoWidth(gfx, bgImages[i], 255 * masterAlpha * track.alpha, track.scale);
     }
 }
 
-function initSequenceAnimation() {
+function initSequenceTimeline() {
     const total = bgImages.length;
+
+    imageTracks = bgImages.map((_, index) => ({
+        alpha: index === 0 ? 1 : 0,
+        scale: index === 0 ? 1 : ENTER_SCALE
+    }));
+
+    if (sequenceTimeline) {
+        sequenceTimeline.kill();
+        sequenceTimeline = null;
+    }
+
+    if (typeof gsap === 'undefined' || total < 2) {
+        return;
+    }
 
     sequenceTimeline = gsap.timeline({ repeat: -1, defaults: { ease: 'none' }, paused: true });
 
     for (let i = 0; i < total; i += 1) {
-        const current = i;
-        const next = (i + 1) % total;
+        const currentTrack = imageTracks[i];
+        const nextTrack = imageTracks[(i + 1) % total];
 
-        sequenceTimeline.call(() => {
-            animationState.index = current;
-            animationState.nextIndex = next;
-            animationState.nextAlpha = 0;
-            animationState.nextScale = ENTER_SCALE;
-        });
-
-        sequenceTimeline.to(animationState, {
+        sequenceTimeline.to({}, {
             duration: DISPLAY_SECONDS,
-            nextAlpha: 0,
-            nextScale: ENTER_SCALE
         });
 
-        sequenceTimeline.to(animationState, {
+        sequenceTimeline.fromTo(nextTrack, {
+            alpha: 0,
+            scale: ENTER_SCALE
+        }, {
             duration: CROSSFADE_SECONDS,
-            nextAlpha: 1,
-            nextScale: 1,
-        });
+            alpha: 1,
+            scale: 1,
+            ease: 'power2.out'
+        }, '<');
+
+        sequenceTimeline.to(currentTrack, {
+            duration: CROSSFADE_SECONDS,
+            alpha: 0,
+            ease: 'power1.inOut'
+        }, '<');
     }
 }
 
-function checkHover() {
+function updateHoverState() {
     const over = mouseX >= logoX && mouseX <= logoX + logoWidth &&
                  mouseY >= logoY && mouseY <= logoY + logoHeight;
 
-    if (over && !isHovered) {
-        isHovered = true;
-        if (hoverTween) hoverTween.kill();
-        if (logoZoomTween) logoZoomTween.kill();
-        if (sequenceTimeline) sequenceTimeline.resume();
-        hoverTween = gsap.to(displayState, {
-            duration: 0.4,
-            imagesAlpha: 1
-        });
-        logoZoomTween = gsap.to(logoRenderState, {
-            duration: 0.35,
-            scale: 1.05,
-            ease: 'power2.out'
-        });
-        document.body.style.cursor = 'pointer';
-    } else if (!over && isHovered) {
-        isHovered = false;
-        if (hoverTween) hoverTween.kill();
-        if (logoZoomTween) logoZoomTween.kill();
-        hoverTween = gsap.to(displayState, {
-            duration: 0.4,
-            imagesAlpha: 0,
-            onComplete: () => { if (sequenceTimeline) sequenceTimeline.pause(); }
-        });
-        logoZoomTween = gsap.to(logoRenderState, {
-            duration: 0.35,
-            scale: 1,
-            ease: 'power2.out'
-        });
-        document.body.style.cursor = 'default';
+    if (over) {
+        handleLogoMouseEnter();
+    } else {
+        handleLogoMouseLeave();
     }
+}
+
+function handleLogoMouseEnter() {
+    if (isHovered) {
+        return;
+    }
+
+    isHovered = true;
+    if (hoverTween) hoverTween.kill();
+    if (logoZoomTween) logoZoomTween.kill();
+
+    if (sequenceTimeline) {
+        sequenceTimeline.play();
+    }
+
+    hoverTween = gsap.to(displayState, {
+        duration: 0.4,
+        imagesAlpha: 1
+    });
+    logoZoomTween = gsap.to(logoRenderState, {
+        duration: 0.35,
+        scale: 1.05,
+        ease: 'power2.out'
+    });
+    document.body.style.cursor = 'pointer';
+}
+
+function handleLogoMouseLeave() {
+    if (!isHovered) {
+        return;
+    }
+
+    isHovered = false;
+    if (hoverTween) hoverTween.kill();
+    if (logoZoomTween) logoZoomTween.kill();
+
+    hoverTween = gsap.to(displayState, {
+        duration: 0.4,
+        imagesAlpha: 0,
+        onComplete: () => {
+            if (sequenceTimeline) {
+                sequenceTimeline.pause();
+            }
+        }
+    });
+    logoZoomTween = gsap.to(logoRenderState, {
+        duration: 0.35,
+        scale: 1,
+        ease: 'power2.out'
+    });
+    document.body.style.cursor = 'default';
+}
+
+function mouseMoved() {
+    updateHoverState();
+}
+
+function mouseDragged() {
+    updateHoverState();
+}
+
+function mouseOut() {
+    handleLogoMouseLeave();
 }
 
 function drawImageFullLogoWidth(gfx, img, alphaValue, scaleValue = 1) {
