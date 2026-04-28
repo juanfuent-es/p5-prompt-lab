@@ -1,4 +1,4 @@
-let labelText = "SOMBRA";
+let labelText = "Rótulo";
 let shadowPos;
 
 function setup() {
@@ -17,8 +17,8 @@ function draw() {
   const dx = constrain(mouseX - width / 2, -maxOffset, maxOffset);
   const dy = constrain(mouseY - height / 2, -maxOffset, maxOffset);
 
-  const targetX = width / 2 + dx * 0.05;
-  const targetY = height / 2 + dy * 0.05;
+  const targetX = width / 2 + dx * 0.1;
+  const targetY = height / 2 + dy * 0.1;
 
   // Smooth lag so the shadow follows with a subtle delay.
   shadowPos.x = lerp(shadowPos.x, targetX, 0.12);
