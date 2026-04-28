@@ -1,4 +1,4 @@
-const MESSAGE = 'Vibe Coding';
+const MESSAGE = 'Particles';
 
 // Interactivity controls.
 const INTERACTION_RADIUS = 150;

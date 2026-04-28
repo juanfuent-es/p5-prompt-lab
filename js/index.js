@@ -1,29 +1,34 @@
-const MESSAGE = '#VibeCoding';
+const MESSAGE = 'VibeCoding';
 
 // Interactivity controls.
-const INTERACTION_RADIUS = 150;
+const INTERACTION_RADIUS = 300;
 const REPULSION_STRENGTH = 2.75;
-const RETURN_STRENGTH = 0.085;
+const RETURN_STRENGTH = 0.05;
 const DAMPING = 0.86;
+const ROTATION_STRENGTH = 0.65;
+const ROTATION_SMOOTHING = 0.16;
 const PARTICLE_STEP = 10;
-const PARTICLE_SIZE = 10;
+const PARTICLE_SIZE = 5;
 const ALPHA_THRESHOLD = 90;
 
-const BG_COLOR = '#101010';
-const PARTICLE_PALETTE = ['#D96277', '#0597F2', '#05AFF2', '#0FBFBF'];
+const COLOR_PALETTE = ['#5518D9', '#8777F2', '#222140', '#F2A81D', '#F25252'];
 
 let particles = [];
 let textLayer;
+let bgColor = "#22214055";
+let particlePalette = [];
 
 function setup() {
     createCanvas(windowWidth, windowHeight);
     pixelDensity(1);
     noStroke();
+    ///bgColor = random(COLOR_PALETTE);
+    particlePalette = COLOR_PALETTE.filter((c) => c !== bgColor);
     buildParticles();
 }
 
 function draw() {
-    background(BG_COLOR);
+    background(bgColor);
 
     for (const p of particles) {
         const dx = p.x - mouseX;
@@ -46,16 +51,31 @@ function draw() {
         p.x += p.vx;
         p.y += p.vy;
 
-        fill(p.color);
+        const mouseAngle = atan2(mouseY - p.y, mouseX - p.x);
+        const proximity = distance < INTERACTION_RADIUS
+            ? 1 - distance / INTERACTION_RADIUS
+            : 0;
+        const targetRotation = mouseAngle * proximity * ROTATION_STRENGTH;
+        p.rotation = lerp(p.rotation, targetRotation, ROTATION_SMOOTHING);
+
         noFill();
-        strokeWeight(2);
+        strokeWeight(.5);
         stroke(p.color);
-        rect(p.homeX, p.homeY, PARTICLE_SIZE, PARTICLE_SIZE);
+        // rect(p.homeX, p.homeY, PARTICLE_SIZE, PARTICLE_SIZE);
         line(p.x, p.y, p.homeX, p.homeY);
         line(p.x + PARTICLE_SIZE, p.y, p.homeX + PARTICLE_SIZE, p.homeY);
         line(p.x, p.y + PARTICLE_SIZE, p.homeX, p.homeY + PARTICLE_SIZE);
         line(p.x + PARTICLE_SIZE, p.y + PARTICLE_SIZE, p.homeX + PARTICLE_SIZE, p.homeY + PARTICLE_SIZE);
-        rect(p.x, p.y, PARTICLE_SIZE, PARTICLE_SIZE);
+
+        const cx = p.x + PARTICLE_SIZE * 0.5;
+        const cy = p.y + PARTICLE_SIZE * 0.5;
+        strokeWeight(.1);
+        push();
+        translate(cx, cy);
+        //rotate(p.rotation);
+        rectMode(CENTER);
+        rect(0, 0, PARTICLE_SIZE, PARTICLE_SIZE);
+        pop();
     }
 }
 
@@ -93,7 +113,8 @@ function buildParticles() {
                     y,
                     homeX: x,
                     homeY: y,
-                    color: random(PARTICLE_PALETTE),
+                    color: random(particlePalette),
+                    rotation: 0,
                     vx: 0,
                     vy: 0
                 });
