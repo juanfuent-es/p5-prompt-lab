@@ -1,35 +1,41 @@
-const MESSAGE = 'VibeCoding';
-
 // Interactivity controls.
-const INTERACTION_RADIUS = 300;
+const INTERACTION_RADIUS = 1000;
 const REPULSION_STRENGTH = 2.75;
 const RETURN_STRENGTH = 0.05;
 const DAMPING = 0.86;
 const ROTATION_STRENGTH = 0.65;
 const ROTATION_SMOOTHING = 0.16;
-const PARTICLE_STEP = 10;
-const PARTICLE_SIZE = 5;
+const PARTICLE_STEP = 9;
+const PARTICLE_SIZE = 9;
 const ALPHA_THRESHOLD = 90;
 
 const COLOR_PALETTE = ['#5518D9', '#8777F2', '#222140', '#F2A81D', '#F25252'];
 
+let canvas, container = document.getElementById('sketch');
 let particles = [];
 let textLayer;
-let bgColor = "#22214055";
 let particlePalette = [];
+let titleElement;
+let titleText = '';
+let titleLines = [];
+let titleFontFamily = 'Space Mono, monospace';
+let titleFontSize = 96;
+let titleFontWeight = '400';
 
 function setup() {
-    createCanvas(windowWidth, windowHeight);
+    titleElement = document.querySelector('#sketch h1');
+    syncTitleFromCSS();
+
+    canvas = createCanvas(windowWidth, windowHeight);
+    canvas.parent(container);
     pixelDensity(1);
     noStroke();
-    ///bgColor = random(COLOR_PALETTE);
-    particlePalette = COLOR_PALETTE.filter((c) => c !== bgColor);
+    particlePalette = COLOR_PALETTE;
     buildParticles();
 }
 
 function draw() {
-    background(bgColor);
-
+    clear();
     for (const p of particles) {
         const dx = p.x - mouseX;
         const dy = p.y - mouseY;
@@ -59,20 +65,20 @@ function draw() {
         p.rotation = lerp(p.rotation, targetRotation, ROTATION_SMOOTHING);
 
         noFill();
-        strokeWeight(.5);
-        stroke(p.color);
-        // rect(p.homeX, p.homeY, PARTICLE_SIZE, PARTICLE_SIZE);
+        strokeWeight(p.weight);
+        stroke(0, abs(sin(frameCount * 0.05 - p.homeX * 0.1 + p.homeY * 0.1)) * 255);
         line(p.x, p.y, p.homeX, p.homeY);
         line(p.x + PARTICLE_SIZE, p.y, p.homeX + PARTICLE_SIZE, p.homeY);
         line(p.x, p.y + PARTICLE_SIZE, p.homeX, p.homeY + PARTICLE_SIZE);
         line(p.x + PARTICLE_SIZE, p.y + PARTICLE_SIZE, p.homeX + PARTICLE_SIZE, p.homeY + PARTICLE_SIZE);
-
         const cx = p.x + PARTICLE_SIZE * 0.5;
         const cy = p.y + PARTICLE_SIZE * 0.5;
-        strokeWeight(.1);
+
+        fill(0);
+        noStroke();
         push();
         translate(cx, cy);
-        //rotate(p.rotation);
+        rotate(p.rotation);
         rectMode(CENTER);
         rect(0, 0, PARTICLE_SIZE, PARTICLE_SIZE);
         pop();
@@ -81,7 +87,24 @@ function draw() {
 
 function windowResized() {
     resizeCanvas(windowWidth, windowHeight);
+    syncTitleFromCSS();
     buildParticles();
+}
+
+function syncTitleFromCSS() {
+    if (!titleElement) {
+        return;
+    }
+
+    const computed = window.getComputedStyle(titleElement);
+    titleText = titleElement.textContent.trim();
+    titleLines = [titleText];
+    titleFontFamily = computed.fontFamily;
+    titleFontSize = parseFloat(computed.fontSize) || 96;
+    titleFontWeight = computed.fontWeight;
+
+    // Keep semantics/SEO while replacing the visual rendering with canvas.
+    titleElement.style.visibility = 'hidden';
 }
 
 function buildParticles() {
@@ -89,16 +112,21 @@ function buildParticles() {
     textLayer = createGraphics(width, height);
     textLayer.pixelDensity(1);
 
-    const fontSize = min(width * 0.17, height * 0.28, 220);
-
     textLayer.clear();
     textLayer.background(0, 0);
     textLayer.fill(255);
     textLayer.noStroke();
     textLayer.textAlign(CENTER, CENTER);
-    textLayer.textStyle(BOLD);
-    textLayer.textSize(fontSize);
-    textLayer.text(MESSAGE, width * 0.5, height * 0.5);
+    textLayer.textStyle(String(titleFontWeight) === '700' ? BOLD : NORMAL);
+    textLayer.textFont(titleFontFamily);
+    textLayer.textSize(titleFontSize);
+
+    const lineHeight = titleFontSize * .85;
+    const blockHeight = lineHeight * (titleLines.length - 1);
+    const startY = height * 0.5 - blockHeight * 0.5;
+    for (let i = 0; i < titleLines.length; i += 1) {
+        textLayer.text(titleLines[i], width * 0.5, startY + i * lineHeight);
+    }
 
     textLayer.loadPixels();
 
@@ -111,6 +139,7 @@ function buildParticles() {
                 particles.push({
                     x,
                     y,
+                    weight: random(0, 1),
                     homeX: x,
                     homeY: y,
                     color: random(particlePalette),

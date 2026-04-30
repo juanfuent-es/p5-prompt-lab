@@ -4,7 +4,7 @@ const message = "Discover me";
 function setup() {
 	createCanvas(windowWidth, windowHeight);
 	textAlign(LEFT, CENTER);
-	textFont("deseo-medium");
+	textFont("discovery");
 	bgColor = color(22, 26, 35);
 }
 

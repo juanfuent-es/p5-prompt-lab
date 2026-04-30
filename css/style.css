@@ -3,3 +3,17 @@ body {
     margin: 0;
     overflow: hidden;
 }
+
+h1 {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: max(14vw, 14dvh);
+  text-wrap-style: balance;
+  line-height: .8em;
+  max-width: 1280px;
+  margin: .25em auto;
+}

@@ -1,12 +1,12 @@
 const MESSAGE = 'Particles';
 
 // Interactivity controls.
-const INTERACTION_RADIUS = 150;
+const INTERACTION_RADIUS = 500;
 const REPULSION_STRENGTH = 2.75;
 const RETURN_STRENGTH = 0.085;
 const DAMPING = 0.86;
-const PARTICLE_STEP = 7;
-const PARTICLE_SIZE = 5;
+const PARTICLE_STEP = 10;
+const PARTICLE_SIZE = 10;
 const ALPHA_THRESHOLD = 90;
 
 const BG_COLOR = '#0b0d10';

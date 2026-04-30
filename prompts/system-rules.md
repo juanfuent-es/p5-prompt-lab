@@ -7,6 +7,7 @@ Genera código usando p5.js.
 - canvas responsive
 - no librerías externas
 - código limpio y comentado
+- declaraciones de variables en el principio de la función
 - máximo 200 líneas salvo que se solicite más
 - Separación de funciones por principio de 'single responsibility'
 
