@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Warp Text | p5.js Prompt LAB</title>
+  <style>
+    body {
+      padding: 0;
+      margin: 0;
+      overflow: hidden;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+
+<!-- p5.js como script global; el sketch usa modo instancia desde el módulo ES -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+
+<script type="module">
+  /**
+   * ─────────────────────────────────────────────────────────────
+   *  Warp Text — p5.js (modo instancia) + lil-gui
+   * ─────────────────────────────────────────────────────────────
+   *  Técnica: desplazamiento sinusoidal por franja (row-slice warp)
+   *
+   *  1. Se dibuja el texto centrado en un p5.Graphics (buffer off-screen).
+   *  2. Se divide la altura del canvas en franjas de `lineSpacing` px.
+   *  3. Cada franja se copia al canvas principal desplazada en X según:
+   *       offsetX = sin( y × frequency + phase ) × amplitude
+   *
+   *  Render estático: se recalcula sólo cuando un parámetro cambia
+   *  en la GUI o la ventana se redimensiona (sin loop de animación).
+   * ─────────────────────────────────────────────────────────────
+   */
+
+  // Importa lil-gui como módulo ES desde CDN
+  import GUI from 'https://cdn.jsdelivr.net/npm/lil-gui@0.19/+esm';
+
+  // ─── Valores por defecto ───────────────────────────────────────
+  // Se usan para el estado inicial y para el botón ↺ Reset.
+  const DEFAULTS = {
+    text:        'Scan',
+    fontSize:    100,
+    strokeWidth: 4,
+    // Warp sinusoidal
+    amplitude:   40,    // desplazamiento máximo en px por franja
+    frequency:   0.025, // ondas por píxel (cuántas crestas caben en la altura)
+    phase:       0,     // desfase de la onda en radianes
+    // Separación de franjas: altura en px de cada banda renderizada
+    lineSpacing: 1,
+    // Hueco entre franjas: px vacíos entre cada banda (simula el avance
+    // vertical del scan original — más gap = líneas más dispersas)
+    lineGap:     0,
+    // Estética
+    textColor:   '#ffffff',
+    bgColor:     '#000000',
+  };
+
+  // Objeto activo: la GUI lo modifica en tiempo real
+  const config = { ...DEFAULTS };
+
+  // ─── Referencia al método de render del sketch ─────────────────
+  // Se asigna desde dentro del sketch para que la GUI pueda llamarlo.
+  let renderWarp;
+
+  // ─── Sketch p5.js en modo instancia ───────────────────────────
+  /**
+   * El modo instancia permite usar p5 junto a módulos ES.
+   * Todos los métodos de p5 se acceden como `p.método()`.
+   *
+   * @param {p5} p — instancia de p5 inyectada por el constructor
+   */
+  const sketch = (p) => {
+
+    // Buffer off-screen: aquí se dibuja el texto limpio antes del warp
+    let pg;
+
+    // ── preload ──────────────────────────────────────────────────
+    // Carga de recursos antes de setup().
+    // Para usar una fuente personalizada:
+    //   let myFont;
+    //   p.preload = () => { myFont = p.loadFont('ruta/a/fuente.ttf'); };
+    // Y en drawSource(): pg.textFont(myFont);
+
+    // ── setup ───────────────────────────────────────────────────
+    p.setup = () => {
+      p.createCanvas(p.windowWidth, p.windowHeight);
+      p.pixelDensity(1); // evita escalado en pantallas HiDPI
+
+      // Crea el buffer gráfico con las mismas dimensiones
+      pg = p.createGraphics(p.windowWidth, p.windowHeight);
+      pg.pixelDensity(1);
+
+      // Render estático: draw() sólo corre al llamar p.redraw()
+      p.noLoop();
+
+      // Primer render con los valores por defecto
+      renderWarp();
+    };
+
+    // ── draw ────────────────────────────────────────────────────
+    // Vacío intencionalmente: el render se dispara por demanda.
+    p.draw = () => {};
+
+    // ── windowResized ───────────────────────────────────────────
+    p.windowResized = () => {
+      p.resizeCanvas(p.windowWidth, p.windowHeight);
+      // El buffer debe redimensionarse manualmente
+      pg.resizeCanvas(p.windowWidth, p.windowHeight);
+      renderWarp();
+    };
+
+    // ── stamp(scanY) ──────────────────────────────────────────────
+    /**
+     * Redibuja el texto en pg con su centro vertical exactamente en
+     * `scanY`. Al leer pg en la fila `scanY` se obtiene siempre la
+     * franja central del glifo, simulando el avance del escáner: cada
+     * franja/píxel de rastro captura el texto en una posición Y distinta.
+     *
+     * @param {number} scanY — posición Y del centro del texto en pg
+     */
+    // scanY opcional: si se omite dibuja en el centro de pg.
+    // Con scanY, el glifo queda centrado verticalmente en esa fila,
+    // de modo que ctx.drawImage leyendo la fila scanY obtiene siempre
+    // la franja central del carácter (efecto escáner avanzando en Y).
+    function stamp(scanY) {
+      const cy = (scanY !== undefined) ? scanY : pg.height / 2;
+      pg.background(config.bgColor);
+      pg.textFont('Helvetica');
+      pg.textSize(config.fontSize);
+      pg.textStyle(p.BOLD);
+      pg.textAlign(p.CENTER, p.CENTER);
+      pg.strokeWeight(config.strokeWidth);
+      pg.stroke(config.textColor);
+      pg.fill(config.textColor);
+      pg.text(config.text, pg.width / 2, cy);
+    }
+
+    // ── renderWarp ──────────────────────────────────────────────
+    /**
+     * Produce el resultado completo del warp en una sola pasada:
+     *
+     *  1. Dibuja el texto limpio en el buffer `pg` (drawSource).
+     *  2. Divide la altura en pasos de (lineSpacing + lineGap) px:
+     *       • lineSpacing px → franja principal, copiada con offset sinusoidal
+     *       • lineGap px     → rastro de escáner: cada píxel de este tramo
+     *                          se rellena interpolando linealmente entre el
+     *                          offset y la posición fuente de la franja actual
+     *                          y los de la siguiente franja.
+     *  3. El resultado simula el movimiento Y del escáner original: a mayor
+     *     lineGap, más largo el rastro y mayor "velocidad" aparente.
+     *
+     * Se usa drawingContext (Canvas2D nativo) en lugar de p.copy() para
+     * garantizar escritura síncrona e inmediata al cambiar parámetros
+     * desde la GUI fuera del loop draw() de p5.
+     *
+     * Para cada franja y cada píxel de rastro se llama a stamp(scanY),
+     * que coloca el texto exactamente en scanY dentro de pg. Así, al
+     * leer pg en la coordenada scanY siempre se obtiene la franja
+     * horizontal correcta del glifo (su centro está ahí), simulando
+     * fielmente el avance del escáner original.
+     */
+    renderWarp = () => {
+      const ctx  = p.drawingContext;
+      const src  = pg.elt;
+      const w    = p.width;
+      const h    = p.height;
+      const { amplitude, frequency, phase, lineSpacing, lineGap } = config;
+      const step = lineSpacing + lineGap;
+
+      ctx.fillStyle = config.bgColor;
+      ctx.fillRect(0, 0, w, h);
+
+      // Si no hay hueco, un solo stamp() basta para todos los strips.
+      // Si hay hueco, los gaps sobreescriben pg → hay que re-stampear
+      // antes de cada strip para restaurar el texto centrado en pg.
+      if (lineGap === 0) stamp();
+
+      for (let y = 0; y < h; y += step) {
+        // ── Franja principal ─────────────────────────────────────
+        // Texto estático en el centro de pg: amplitude=0 da texto natural.
+        if (lineGap > 0) stamp();
+        const stripOffX = Math.sin(y * frequency + phase) * amplitude;
+        ctx.drawImage(src, 0, y, w, lineSpacing, stripOffX, y, w, lineSpacing);
+
+        // ── Hueco entre franjas ──────────────────────────────────
+        // Cada píxel del hueco llama stamp(destY): el glifo se centra
+        // en destY y la lectura en esa fila devuelve su franja central.
+        // Esto simula el escáner avanzando en Y píxel a píxel.
+        for (let i = 0; i < lineGap; i++) {
+          const destY   = y + lineSpacing + i;
+          if (destY >= h) break;
+          const gapOffX = Math.sin(destY * frequency + phase) * amplitude;
+          stamp(destY);
+          ctx.drawImage(src, 0, destY, w, 1, gapOffX, destY, w, 1);
+        }
+      }
+    };
+  };
+
+  // ─── Instancia de p5 ───────────────────────────────────────────
+  // El segundo argumento indica el elemento contenedor (document.body)
+  new p5(sketch, document.body);
+
+  // ─── GUI con lil-gui ───────────────────────────────────────────
+  // Se crea después de iniciar el sketch; renderWarp quedará asignado
+  // al momento en que los callbacks de onChange se ejecuten.
+  const gui = new GUI({ title: 'Warp Text' });
+
+  // Carpeta: Contenido tipográfico
+  const folderContent = gui.addFolder('Contenido');
+  folderContent
+    .add(config, 'text')
+    .name('Texto')
+    .onFinishChange(() => renderWarp());
+  folderContent
+    .add(config, 'fontSize', 12, 400, 1)
+    .name('Tamaño de fuente')
+    .onChange(() => renderWarp());
+  folderContent
+    .add(config, 'strokeWidth', 0, 20, 0.5)
+    .name('Grosor de trazo')
+    .onChange(() => renderWarp());
+
+  // Carpeta: Deformación — los tres parámetros de la onda sinusoidal
+  const folderWarp = gui.addFolder('Deformación');
+  folderWarp
+    .add(config, 'amplitude', 0, 300, 1)
+    .name('Amplitud (px)')
+    .onChange(() => renderWarp());
+  folderWarp
+    .add(config, 'frequency', 0.001, 0.15, 0.001)
+    .name('Frecuencia (ondas/px)')
+    .onChange(() => renderWarp());
+  folderWarp
+    .add(config, 'phase', 0, Math.PI * 2, 0.01)
+    .name('Fase (rad)')
+    .onChange(() => renderWarp());
+
+  // Carpeta: Franjas de renderizado
+  const folderLines = gui.addFolder('Franjas');
+  folderLines
+    .add(config, 'lineSpacing', 1, 40, 1)
+    .name('Alto de franja (px)')
+    .onChange(() => renderWarp());
+  folderLines
+    .add(config, 'lineGap', 0, 80, 1)
+    .name('Hueco entre franjas (px)')
+    .onChange(() => renderWarp());
+
+  // Carpeta: Estética
+  const folderStyle = gui.addFolder('Estética');
+  folderStyle
+    .addColor(config, 'textColor')
+    .name('Color de texto')
+    .onChange(() => renderWarp());
+  folderStyle
+    .addColor(config, 'bgColor')
+    .name('Color de fondo')
+    .onChange(() => renderWarp());
+
+  // Botón Reset: restaura DEFAULTS, refresca los controles y re-renderiza
+  gui.add({
+    reset() {
+      Object.assign(config, DEFAULTS);
+      gui.controllersRecursive().forEach(c => c.updateDisplay());
+      renderWarp();
+    }
+  }, 'reset').name('↺  Reset');
+
+</script>
+</body>
+</html>
